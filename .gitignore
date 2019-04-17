@@ -175,3 +175,6 @@ venv.bak/
 /test/logs/
 /test/data/
 /test/saves/
+
+# Visual Studio code
+.vscode

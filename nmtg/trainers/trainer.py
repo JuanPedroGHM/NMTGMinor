@@ -83,7 +83,7 @@ class Trainer:
         else:
             self._build_data()
 
-        self._build_model(checkpoint['args'] if not for_training else args)
+        self.model = self._build_model(checkpoint['args'] if not for_training else args)
 
         if args.cuda:
             self.model.cuda()
@@ -110,7 +110,7 @@ class Trainer:
         checkpoint['training_time'] = self.training_time.elapsed_time
 
     def _build_model(self, model_args):
-        self.model = build_model(self.args.model, model_args)
+        return build_model(self.args.model, model_args)
 
     def _build_optimizer(self):
         assert all(x.requires_grad for x in self.model.parameters())

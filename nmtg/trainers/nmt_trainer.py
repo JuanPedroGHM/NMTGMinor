@@ -229,8 +229,10 @@ class NMTTrainer(Trainer):
                                          tgt_linear.parameters()):
                 param.requires_grad_(False)
 
-        self.model = EncoderDecoderModel(encoder, decoder)
-        self.model.batch_first = model_args.batch_first
+        
+        builtModel = EncoderDecoderModel(encoder, decoder)
+        builtModel = model_args.batch_first
+        return builtModel
 
     @staticmethod
     def _get_embedding(args, dictionary, embedding_size, path):
