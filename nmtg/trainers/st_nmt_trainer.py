@@ -1,4 +1,5 @@
 from nmtg.trainers.nmt_trainer import NMTTrainer
+from nmtg.convert import load_checkpoint
 from . import register_trainer
 
 @register_trainer('st_nmt')
@@ -8,27 +9,28 @@ class StudentTeacherNMTTrainer(NMTTrainer):
     def add_training_options(cls, parser, argv=None):
         super().add_training_options(parser, argv)
 
-        parser.add_argument('-teacher', type=str, requiered=True,
+        parser.add_argument('-teacher', type=str, required=True,
                             help='Path to the teacher model/checkpoint')
         parser.add_argument('-teacher_weight', type=float, default=1.0,
                             help='Weight to use for the soft targets loss function')
-        parser.add_argument('-temperature', type=int, default=1,
+        parser.add_argument('-temperature', type=float, default=1.0,
                             help='Temperature value for the softmax function')
         
     def __init__(self, args, for_training=True, checkpoint=None):
         super().__init__(args, for_training, checkpoint)
         
         ## Build teacher models
-        teacherCheckpoint = args.teacher
+        teacherCheckpoint = load_checkpoint(args.teacher)
+
         self.teacher = self._build_model(teacherCheckpoint['args'])
-        import pdb; pdb.set_trace()
 
         if args.cuda:
             self.teacher.cuda()
         if args.fp16:
             self.teacher.half()
 
-        self.teacher.load_state_dict(checkpoint['model'])
+        self.teacher.load_state_dict(teacherCheckpoint['model'])
+        self.teacher.eval()
         
     def _forward(self, batch, training=True):
         encoder_input = batch.get('src_indices')
@@ -46,6 +48,7 @@ class StudentTeacherNMTTrainer(NMTTrainer):
         T = self.args.temperature
         alpha = self.args.teacher_weight
         outputs, attn_out = self.model(encoder_input, decoder_input, encoder_mask, decoder_mask)
+        
         teacher_outputs, teacher_attn_out = self.teacher(encoder_input, decoder_input, encoder_mask, decoder_mask)
 
         lprobs = self.model.get_normalized_probs(outputs, attn_out, encoder_input,
@@ -59,7 +62,15 @@ class StudentTeacherNMTTrainer(NMTTrainer):
 
         if training:
             targets = targets.masked_selected(decoder_mask)
+        hard_loss, _ = self.loss(lprobs, targets)
         
-        loss = alpha * self.loss(soft_lprob, soft_target) + (1 - alpha) * self.loss(lprobs, targets)
-        return loss
+        ## Calculate soft/distillation loss
+        soft_lprob = soft_lprob.view(-1, soft_lprob.size(-1))
+        soft_target = soft_target.view(-1, soft_target.size(-1))
+
+        distillation_loss = -(soft_target * soft_lprob)
+        distillation_loss = distillation_loss.sum()
+
+        loss = alpha * distillation_loss + (1 - alpha) * hard_loss
+        return loss, loss.item()
 

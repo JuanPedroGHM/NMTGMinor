@@ -229,9 +229,9 @@ class NMTTrainer(Trainer):
                                          tgt_linear.parameters()):
                 param.requires_grad_(False)
 
-        
+
         builtModel = EncoderDecoderModel(encoder, decoder)
-        builtModel = model_args.batch_first
+        builtModel.batch_first = model_args.batch_first
         return builtModel
 
     @staticmethod
@@ -377,6 +377,7 @@ class NMTTrainer(Trainer):
 
         encoder_mask = encoder_input.ne(self.src_dict.pad())
         decoder_mask = decoder_input.ne(self.tgt_dict.pad())
+
         outputs, attn_out = self.model(encoder_input, decoder_input, encoder_mask, decoder_mask)
         lprobs = self.model.get_normalized_probs(outputs, attn_out, encoder_input,
                                             encoder_mask, decoder_mask, log_probs=True)
