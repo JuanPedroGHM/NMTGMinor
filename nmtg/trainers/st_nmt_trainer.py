@@ -1,3 +1,4 @@
+import torch
 from nmtg.trainers.nmt_trainer import NMTTrainer
 from nmtg.convert import load_checkpoint
 from . import register_trainer
@@ -48,29 +49,35 @@ class StudentTeacherNMTTrainer(NMTTrainer):
         T = self.args.temperature
         alpha = self.args.teacher_weight
         outputs, attn_out = self.model(encoder_input, decoder_input, encoder_mask, decoder_mask)
-        
-        teacher_outputs, teacher_attn_out = self.teacher(encoder_input, decoder_input, encoder_mask, decoder_mask)
 
         lprobs = self.model.get_normalized_probs(outputs, attn_out, encoder_input,
                                             encoder_mask, decoder_mask, log_probs=True)
-        
-        soft_lprob = self.model.get_normalized_probs(outputs / T, attn_out, encoder_input,
-                                            encoder_mask, decoder_mask, log_probs=True)
-        
-        soft_target = self.teacher.get_normalized_probs(teacher_outputs / T, teacher_attn_out, encoder_input,
-                                    encoder_mask, decoder_mask, log_probs=False)
 
         if training:
-            targets = targets.masked_selected(decoder_mask)
-        hard_loss, _ = self.loss(lprobs, targets)
-        
-        ## Calculate soft/distillation loss
-        soft_lprob = soft_lprob.view(-1, soft_lprob.size(-1))
-        soft_target = soft_target.view(-1, soft_target.size(-1))
+            targets = targets.masked_select(decoder_mask)
+            hard_loss, _ = self.loss(lprobs, targets)
 
-        distillation_loss = -(soft_target * soft_lprob)
-        distillation_loss = distillation_loss.sum()
+            soft_lprob = self.model.get_normalized_probs(outputs / T, attn_out, encoder_input,
+                                                encoder_mask, decoder_mask, log_probs=True)
+            soft_lprob = soft_lprob.view(-1, soft_lprob.size(-1))
 
-        loss = alpha * distillation_loss + (1 - alpha) * hard_loss
-        return loss, loss.item()
+
+            with torch.no_grad():
+                teacher_outputs, teacher_attn_out = self.teacher(encoder_input, decoder_input, encoder_mask, decoder_mask)
+                soft_target = self.teacher.get_normalized_probs(teacher_outputs / T, teacher_attn_out, encoder_input,
+                                                                encoder_mask, decoder_mask, log_probs=False)
+                soft_target = soft_target[decoder_mask,:]
+
+            ## Calculate soft/distillation loss
+            soft_lprob = soft_lprob.view(-1, soft_lprob.size(-1))
+
+            distillation_loss = -(soft_target * soft_lprob)
+            distillation_loss = distillation_loss.sum()
+
+            loss = alpha * distillation_loss + (1 - alpha) * hard_loss
+            return loss, loss.item()
+        else:
+
+            return self.loss(lprobs, targets)
+
 
